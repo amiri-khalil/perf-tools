@@ -33,13 +33,14 @@ def name(real=False):
   return pmu_name() or 'Unknown PMU' if real or not forcecpu else forcecpu.lower()
 
 # per CPU PMUs
-def skylake():    return name() in ('skylake', 'skl')
-def icelake():    return name() in ('icelake', 'icl', 'icx', 'tgl')
-def alderlake():  return name() in ('alderlake_hybrid', 'adl')
-def sapphire():   return name() in ('sapphire_rapids', 'spr', 'spr-hbm')
-def meteorlake(): return name() in ('meteorlake_hybrid', 'mtl')
-def granite():    return name() in ('granite_rapids', 'gnr')
-def lunarlake():  return name() in ('lunarlake_hybrid', 'lnl')
+def skylake():      return name() in ('skylake', 'skl')
+def icelake():      return name() in ('icelake', 'icl', 'icx', 'tgl')
+def alderlake():    return name() in ('alderlake_hybrid', 'adl')
+def sapphire():     return name() in ('sapphire_rapids', 'spr', 'spr-hbm')
+def meteorlake():   return name() in ('meteorlake_hybrid', 'mtl')
+def granite():      return name() in ('granite_rapids', 'gnr')
+def lunarlake():    return name() in ('lunarlake_hybrid', 'lnl')
+def pantherlake():  return name() in ('pantherlake_hybrid', 'ptl')
 # aggregations
 def goldencove():   return alderlake() or sapphire()
 def redwoodcove():  return meteorlake() or granite()
@@ -56,14 +57,17 @@ def goldencove_on():  return cpu_has_feature('arch_lbr')
 # Redwood Cove onward PMUs have CPUID.0x23
 def redwoodcove_on(): return cpu_has_feature('CPUID.23H')
 # For now
-def lioncove_on():    return lunarlake()
+def lioncove_or_newer():    return lunarlake() or pantherlake()
 
 def retlat(real=False): return cpu_has_feature('CPUID.23H', real=real)
-# FIXME:09: extract next tuple from genretlat -h output
-def is_retlat(x): return x and x in ('MTL', 'GNR', 'LNL')
+def is_retlat(x):
+  if not x: return False
+  for l in C.exe_output('%s/genretlat -h' % (pmutools), sep='\n').split('\n'):
+    if 'Set CPU type' in l: return x.lower() in l.split('(')[-1]
+  return False
 def server():     return os.path.isdir('/sys/devices/uncore_cha_0')
 def msocket():    return cpu('socketcount') > 1 # multi-socket
-def hybrid():     return 'hybrid' in name()
+def hybrid():     return 'hybrid' in name(real=True)
 def intel():      return 'Intel' in cpu('vendor')
 
 # non-IA
@@ -135,10 +139,14 @@ def fixed_events(intel_names):
     es.insert(0, ('TOPDOWN.SLOTS', 'slots')[idx])
   return es
 
-# TODO: lookup Metric's attribute in pmu-tools/ratio; no hardcoding!
 def is_uncore_metric(m):
-  return m in ('DRAM_BW_Use', 'Power', 'Socket_CLKS') or \
-         m.startswith(tuple(x + '_' for x in ('MEM', 'PMM', 'HBM', 'Uncore', 'UPI', 'IO')))
+  data = read_ratios_data()
+  if not data: #  legacy
+    return m in ('DRAM_BW_Use', 'Power', 'Socket_CLKS') or \
+           m.startswith(tuple(x + '_' for x in ('MEM', 'PMM', 'HBM', 'Uncore', 'UPI', 'IO')))
+  cls = data.get(f'Metric_{m}')
+  return 'MemOffcore' in getattr(cls, 'metricgroup', [])
+
 
 TPEBS = {'MTL':
   "MEM_LOAD_RETIRED.L3_HIT,MEM_LOAD_L3_HIT_RETIRED.XSNP_NO_FWD,MEM_LOAD_L3_HIT_RETIRED.XSNP_MISS,MEM_LOAD_L3_HIT_RETIRED.XSNP_FWD,"
@@ -244,7 +252,7 @@ def force_cpu(cpu):
   if cpus == '': C.error("no eventlist found for the forced CPU")
   cpu_id, _ = cpus[0].split(',')[0], 'hybridcore' if cpus[0].count('_') == 2 else 'core'
   if '[' in cpu_id: cpu_id = cpu_id.split('[')[0] + cpu_id[-2]
-  event_list = "%s/%s-%s.json" % (events_dir, cpu_id, 'hybridcore' if cpus[0].count('_') == 2 else 'core')
+  event_list = "%s/%s-%s.json" % (events_dir, cpu_id, 'hybridcore-Core' if cpus[0].count('_') == 2 else 'core')
   if not os.path.exists(event_list): C.exe_cmd('%s/event_download.py %s' % (pmutools, cpu_id))
   return event_list
 
@@ -294,9 +302,7 @@ def cpu(what, default=None):
     }
     cpu.state.update(versions())
     # Forcing cpu to one with no retlat is done here to avoid infinite recursion
-    if forcecpu and retlat(real=True):
-      if forcecpu in ('ADL', 'SPR'): cpu.state['CPUID.23H'] = 0
-      else: C.error('FORCECPU=%s is not supported for %s' % (forcecpu, name(True)))
+    if forcecpu in ('ADL', 'SPR') and retlat(real=True): cpu.state['CPUID.23H'] = 0
     if hybrid():
       p_core_el = cpu.state['eventlist']
       hybrid_el = p_core_el.replace('-core.json', '-hybridcore-Core.json')
@@ -335,25 +341,34 @@ def cpu_msrs(type='control_etc'):
 def cpu_peak_kernels(widths=(4, 5, 6, 8)):
   return ['peak%dwide' % x for x in widths]
 
+def read_ratios_data():
+  ratios_file = 'lnl_lnc_ratios.py' if lunarlake() else 'ptl_cgc_ratios.py' if pantherlake() else None
+  data = {} if ratios_file else None
+  if ratios_file:
+    with open(f'{pmutools}/{ratios_file}') as f:
+      exec (f.read(), data)
+  return data
+
 def cpu_pipeline_width(all_widths=None):
-  if all_widths: # TODO: eventually read from pmu-tools.
+  data = read_ratios_data()
+  if all_widths:
     # skylake
     full_widths = {'dsb':('IDQ.DSB_UOPS',6), 'mite':('IDQ.MITE_UOPS',5), 'decoders':('INST_DECODED.DECODERS',4), 'ms':('IDQ.MS_UOPS',4),
                    'issued':('UOPS_ISSUED.ANY',4),'executed':('UOPS_EXECUTED.THREAD',8),'retired':('UOPS_RETIRED.RETIRE_SLOTS',4)}
     if icelake():
-      full_widths = {'dsb':('IDQ.DSB_UOPS',6), 'mite':('IDQ.MITE_UOPS',5), 'decoders':('INST_DECODED.DECODERS',4), 'ms':('IDQ.MS_UOPS',4),
+      return {'dsb':('IDQ.DSB_UOPS',6), 'mite':('IDQ.MITE_UOPS',5), 'decoders':('INST_DECODED.DECODERS',4), 'ms':('IDQ.MS_UOPS',4),
                      'issued':('UOPS_ISSUED.ANY',5),'executed':('UOPS_EXECUTED.THREAD',10),'retired':('UOPS_RETIRED.SLOTS',8)}
     elif goldencove() or redwoodcove():
-      full_widths = {'dsb':('IDQ.DSB_UOPS',8), 'mite':('IDQ.MITE_UOPS',6), 'decoders':('INST_DECODED.DECODERS',6), 'ms':('IDQ.MS_UOPS',4),
+      return {'dsb':('IDQ.DSB_UOPS',8), 'mite':('IDQ.MITE_UOPS',6), 'decoders':('INST_DECODED.DECODERS',6), 'ms':('IDQ.MS_UOPS',4),
                      'issued':('UOPS_ISSUED.ANY',6),'executed':('UOPS_EXECUTED.THREAD',12),'retired':('UOPS_RETIRED.SLOTS',8)}
-    elif lunarlake():
-      full_widths = {'dsb':('IDQ.DSB_UOPS',12), 'mite':('IDQ.MITE_UOPS',8), 'decoders':('INST_DECODED.DECODERS',8), 'ms':('IDQ.MS_UOPS',4),
-                     'issued':('UOPS_ISSUED.ANY',8),'executed':('UOPS_EXECUTED.THREAD',18),'retired':('UOPS_RETIRED.SLOTS',12)}
+    if data: return {'dsb':('IDQ.DSB_UOPS', data['DSB_Width']), 'mite':('IDQ.MITE_UOPS', data['MITE_Width']), 'decoders':('INST_DECODED.DECODERS', data['Decode_Width']),
+                   'ms':('IDQ.MS_UOPS', data['MS_Width']), 'issued':('UOPS_ISSUED.ANY', data['Pipeline_Width']), 'executed':('UOPS_EXECUTED.THREAD',18),
+                   'retired':('UOPS_RETIRED.SLOTS', data['Retire_Width'])}
     return full_widths
   width = 4
   if icelake(): width = 5
   elif goldencove() or redwoodcove(): width = 6
-  elif lunarlake(): width = 8
+  elif data: width = data['Pipeline_Width']
   return width
 
 def widths_2_cmasks(widths):
@@ -382,7 +397,7 @@ def widths_2_cmasks(widths):
 
 # returns MSB bit of DSB's set-index, if uarch is supported
 def dsb_msb():
-  return 11 if lunarlake() else 10 if goldencove() or redwoodcove() else (9 if skylake() or icelake() else None)
+  return 11 if lunarlake() or pantherlake() else 10 if goldencove() or redwoodcove() else (9 if skylake() or icelake() else None)
 
 def dsb_set_index(ip):
   if not dsb_set_index.MSB: dsb_set_index.MSB = dsb_msb()

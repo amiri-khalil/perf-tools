@@ -1,4 +1,5 @@
 model,ZeroOk
+PTL,C02_Wait;Contested_Accesses;Data_Sharing;False_Sharing
 LNL,C02_Wait;Contested_Accesses;Data_Sharing;False_Sharing
 GNR,Remote_Cache;C02_Wait;Contested_Accesses;Data_Sharing;False_Sharing
 MTL,C02_Wait;Contested_Accesses;Data_Sharing;False_Sharing

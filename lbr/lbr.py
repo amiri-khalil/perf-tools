@@ -27,7 +27,7 @@ try:
   numpy_imported = True
 except ImportError:
   numpy_imported = False
-__version__= x86.__version__ + 2.69 # see version line of do.py
+__version__= x86.__version__ + 2.7 # see version line of do.py
 
 llvm_log = C.envfile('LLVM_LOG')
 llvm_args = C.env2str('LLVM_ARGS')
@@ -128,7 +128,7 @@ def count_of(t, lines, x, hist):
 hsts, LC.hsts_threshold = {}, {NOLFC: 0.01, IPLFCB0: 0, IPLFCB1: 0}
 def edge_en_init(indirect_en):
   for x in (FUNCI, 'IPC', IPTB, IPLFC, NOLFC, IPLFCB0, IPLFCB1, FUNCR, FUNCP): hsts[x] = {}
-  if pmu.lioncove_on(): hsts['LTT-set_misp_only'], hsts['LTT-mispIP-set'] = {}, {}
+  if pmu.lioncove_or_newer(): hsts['LTT-set_misp_only'], hsts['LTT-mispIP-set'] = {}, {}
   if indirect_en:
     for x in ('', '-misp'): hsts['indirect-x2g%s' % x] = {}
   if os.getenv('LBR_INDIRECTS'):

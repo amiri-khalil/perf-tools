@@ -147,7 +147,7 @@ def analyze(app, args, do=None, analyze_all=True):
   if examine('Instruction_Fetch_BW'): analyze_ifetch()
   if not analyze_all: return
 
-  if examine('Cache_Memory_Bandwidth'):
+  if examine('Data_Cache_Memory_Bandwidth'):
     value = stats.get('Useless_HWPF', app)
     if value > threshold['useless-hwpf']:
       advise('too much useless HW prefetches of %s; try to disable them' % percent(value))

@@ -551,7 +551,7 @@ def profile(mask, toplev_args=['mvl6', None], windows_file=None):
       if perf_script.first and args.mode != 'profile': C.info("filtering on command '%s' in next post-processing" % perf_script.comm)
     instline = r'^\s+[0-9a-f]+\s'
     if 'taken branches' in msg: instline += '.*#'
-    x = x.replace('GREP_INST', "grep -E '%s'" % instline)
+    x = x.replace('GREP_INST', C.grep(instline))
     x = x.replace(x.split('|')[0], '%scat %s ' % (C.zprefix(windows_file), windows_file)) if windows_file \
       else ' '.join((perf, 'script', perf_ic(data, perf_script.comm), x))
     if perf_script.first and not en(8) and not do['batch']: C.warn('LBR profile-step is disabled')
@@ -812,7 +812,7 @@ def profile(mask, toplev_args=['mvl6', None], windows_file=None):
         exe(perf + r" report %s | grep -A13 'Branch Statistics:' | tee -a %s | grep -E -v ':\s+0\.0%%|CROSS'" %
           (perf_ic(data, comm), info), None if do['size'] else "@stats")
       if C.isfile(logs['stat']): exe("grep -E '  branches| cycles|instructions|BR_INST_RETIRED' %s >> %s" % (logs['stat'], info))
-      sort2uf = "%s |%s ./ptage" % (sort2u, r" grep -E -v '\s+[1-9]\s+' |" if do['imix'] & 0x10 else '')
+      sort2uf = "%s |%s ./ptage" % (sort2u, (r" %s |" % C.grep(r'\s+[1-9]\s+', flags='-v')) if do['imix'] & 0x10 else '')
       slow_cmd = f"| tee >(sed -E 's/\\[[0-9]+\\]//' | {sort2u} | {C.grep(x86.JUMP)} | ./slow-branch {ipc_lbr} " \
         f"| sort -n | {C.ptage()} > {data}.slow.log)" if mask_eq(0x48, do['imix']) else ''
       perf_script("-F ip | %s > %s.samples.log && %s" % (sort2uf, data, log_br_count('sampled taken',
@@ -850,7 +850,7 @@ def profile(mask, toplev_args=['mvl6', None], windows_file=None):
         if sys.version_info < (3, 0): C.error('Python 3 or above required')
         if not do['funcs'] and C.isfile(funcs): os.remove(funcs)
         lbr_env = "LBR_LOOPS_LOG=%s%s" % (loops, (' LBR_FUNCS=%d LBR_FUNCS_LOG=%s' % (do['funcs'], funcs)) if do['funcs'] else '')
-        cycles = get_stat(pmu.event('cycles', user_only=0)) or get_stat('cycles', 0)
+        cycles = get_stat('cycles', 0) or get_stat(pmu.event('cycles', user_only=0))
         if cycles: lbr_env += ' PTOOLS_CYCLES=%d' % cycles
         if args.verbose > 2: lbr_env += ' LBR_VERBOSE=%x' % C.env2int_bo('LBR_VERBOSE', 0x800)
         if type(do['lbr-indirects']) == int:
@@ -1001,7 +1001,7 @@ def profile(mask, toplev_args=['mvl6', None], windows_file=None):
     exe(' '.join((perf, 'script', x)), msg=None, redir_out=None)
     if args.mode != 'profile': print('firefox %s.svg &' % perf_data)
 
-  if en(21) and not pmu.lunarlake(): # FIXME:08: jon support LNL in Pipeline View
+  if en(21) and not pmu.lunarlake() and not pmu.pantherlake(): # FIXME:08: jon support LNL and PTL in Pipeline View
     from pipeline import pipeline_view
     widths = pmu.cpu_pipeline_width('all_widths')
     evts = pmu.widths_2_cmasks(widths)

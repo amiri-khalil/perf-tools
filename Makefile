@@ -1,6 +1,6 @@
 .PHONY: clean clean-all help
 AP = BC-14
-APP = taskset 0x4 ./workloads/BC.sh 14  #./$(AP)
+APP = 'taskset 0x4 ./workloads/BC.sh 14'  #./$(AP)
 AP_MT = perf bench numa mem -p 16 -C0-15
 CC = clang
 CPP = /usr/bin/clang++
@@ -297,7 +297,7 @@ PRE_PUSH_CMDS := \
     "echo 'prompting for sudo soon1' && $(DO) log" \
     "echo 'testing topdown across-tree tagging; Mispredict' && $(MAKE) test-bc2 PM=40 SHOW=\"grep --color -E '^|Mispredict'\"" \
     "echo 'testing topdown ~overlap in Threshold attribute' && echo skip: $(MAKE) test-false-sharin" \
-    "echo 'testing Bottlenecks View' && $(MAKE) test-bottlenecks AP=\"./kernels/cpuid $(CPUIDI)\"" \
+    "echo 'testing Bottlenecks View' && $(MAKE) test-bottlenecks APP=\"./kernels/cpuid $(CPUIDI)\"" \
     "echo 'testing build command, perf -e, toplev --nodes; Ports_*' && $(MAKE) test-build SHOW=\"grep --color -E '^|build|DSB|Ports'\"" \
     "echo 'testing load-latency profile-step + verbose:1' && rm -f run-mem-bw && $(MAKE) test-mem-bw RERUN='-pm 400 -v1'" \
     "echo 'building CLTRAMP3D workload for upcoming tests' && $(MAKE) tramp3d-v4" \
